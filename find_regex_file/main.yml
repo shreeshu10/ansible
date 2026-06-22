@@ -1,0 +1,73 @@
+---
+- name: Optimize regex to find the files maching regex patterns
+  hosts: all
+  gather_facts: false
+  remote_user: root
+  vars:
+    user_regex_path: 
+      - <enter the regex path here>
+
+  tasks:
+  - name: Task 1a - Initialize an empty list
+    ansible.builtin.set_fact:
+      normalized_paths_meta: []
+
+  - name: Task 1b - Populate the list with initial metadata
+    ansible.builtin.set_fact:
+      normalized_paths_meta: >-
+        {{ normalized_paths_meta + [{
+          'user_path': item,
+          'base_path': item.split('*')[0] | dirname if '*' in item else item | dirname,
+          'regex_pattern': '^' ~ (item | regex_escape | replace('\*', '[^/]+')) ~ '$'
+        }] }}
+    loop: "{{ user_regex_path }}"
+
+  - name: Debug the constructed regex patterns and base paths
+    ansible.builtin.debug:
+      msg: "{{ normalized_paths_meta }}"
+
+  - name: Use find module with the constructed regex patterns
+    ansible.builtin.find:
+      paths: "{{ item.base_path }}"
+      recurse: true
+    register: all_found_files
+    loop: "{{ normalized_paths_meta }}"
+    loop_control:
+      label: "{{ item.base_path }}"
+
+  #- name: debug the found files
+  #  ansible.builtin.debug:
+  #    var: all_found_files
+
+  - name: Initialize enriched metadata list
+    ansible.builtin.set_fact:
+      enriched_paths_meta: []
+
+  - name: Add found_files to each metadata item
+    ansible.builtin.set_fact:
+      enriched_paths_meta: >-
+        {{ enriched_paths_meta + [
+          normalized_paths_meta[item] | combine({
+            'found_files': all_found_files.results[item].files | map(attribute='path') | list
+          })
+        ] }}
+    loop: "{{ range(0, normalized_paths_meta | length) | list }}"
+
+  - name: Replace normalized_paths_meta with enriched metadata
+    ansible.builtin.set_fact:
+      normalized_paths_meta: "{{ enriched_paths_meta }}"
+
+  - name: Filter the found files using the constructed regex patterns
+    ansible.builtin.set_fact:
+      regex_found_files: "{{ (regex_found_files | default([])) + (item.found_files | select('match', item.regex_pattern) | list) }}"
+    loop: "{{ normalized_paths_meta }}"
+    loop_control:
+      label: "{{ item.user_path }}"
+
+  - name: debug the normalized_paths_meta with found files
+    ansible.builtin.debug:
+      var: normalized_paths_meta
+
+  - name: Display the discovered file paths 
+    ansible.builtin.debug:
+      var: regex_found_files
