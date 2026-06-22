@@ -1,0 +1,31 @@
+---
+- name: Ansible Slurp Module
+  gather_facts: false
+  hosts: all
+  
+  tasks:
+  - name: Capture baseline memory before task
+    ansible.builtin.shell: free -m
+    register: mem_before
+
+  - name: slurp the contents of files
+    slurp:
+      src: /opt/app/test.log
+    register: content
+    become: yes
+
+  - name: Capture baseline memory after task
+    ansible.builtin.shell: free -m
+    register: mem_after
+
+  - name: Display memory usage before and after slurp
+    ansible.builtin.debug:
+          msg:
+            - "--- MEMORY BEFORE (MB) ---"
+            - "{{ mem_before.stdout }}"
+            - "--- MEMORY AFTER (MB) ---"
+            - "{{ mem_after.stdout }}"
+
+  - name: display only first two lines of the slurp content
+    debug:
+      msg: "{{ (content.content | b64decode).splitlines()[:2] }}"
